@@ -39,14 +39,19 @@ let dbConfig: DatabaseConfig;
 
 // Enhanced DB_TYPE environment variable handling with better error messages
 const dbType = process.env.DB_TYPE?.toLowerCase();
-console.error(`🔧 Database Type Configuration: ${dbType || 'not set (defaulting to SQLite)'}`);  
+// Minimal startup logging
+if (process.env.MCP_DEBUG) {
+  console.error(`🔧 Database Type Configuration: ${dbType || 'not set (defaulting to SQLite)'}`);
+}
 
 // Load database configuration based on DB_TYPE environment variable
 if (dbType && dbType !== 'sqlite') {
   // User explicitly requested a specific database type
   try {
     dbConfig = configManager.loadFromEnvironment();
-    console.error(`✅ Database configuration loaded successfully: ${dbConfig.type}`);
+    if (process.env.MCP_DEBUG) {
+      console.error(`✅ Database configuration loaded successfully: ${dbConfig.type}`);
+    }
   } catch (error) {
     console.error(`❌ Failed to load ${dbType.toUpperCase()} configuration from environment variables:`);
     console.error(`   Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -2480,7 +2485,9 @@ const server = new Server({
 // Use our new structured tool system for listing tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const tools = getAllMCPTools();
-  console.error(`📋 Serving ${tools.length} tools with comprehensive documentation`);
+  if (process.env.MCP_DEBUG) {
+    console.error(`📋 Serving ${tools.length} tools with comprehensive documentation`);
+  }
   return { tools };
 });
 
@@ -2491,6 +2498,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (!args) {
     throw new Error(`No arguments provided for tool: ${name}`);
   }
+
+  // Ensure RAG system is initialized before executing any tool
+  await ensureInitialized();
 
   try {
     // Validate arguments using our structured schema
@@ -2565,24 +2575,58 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+// Lazy initialization state
+let isInitialized = false;
+let initializationPromise: Promise<void> | null = null;
+
+async function ensureInitialized(): Promise<void> {
+  if (isInitialized) return;
+  
+  if (initializationPromise) {
+    await initializationPromise;
+    return;
+  }
+  
+  initializationPromise = (async () => {
+    if (process.env.MCP_DEBUG) {
+      console.error("🔄 Initializing RAG system on first use...");
+    }
+    await ragKgManager.initialize();
+    isInitialized = true;
+    if (process.env.MCP_DEBUG) {
+      console.error("✅ RAG system initialized successfully");
+    }
+  })();
+  
+  await initializationPromise;
+}
+
 async function main() {
   try {
-    await ragKgManager.initialize();
-    
+    // Start MCP server immediately without waiting for RAG initialization
     const transport = new StdioServerTransport();
     await server.connect(transport);
+    
+    // Minimal startup logging - only essential info
     console.error("🚀 Enhanced RAG Knowledge Graph MCP Server running on stdio");
+    if (process.env.MCP_DEBUG) {
+      console.error("📊 System Info: 18 tools available (6 knowledge graph, 6 RAG, 6 query)");
+      console.error("⚡ RAG system will initialize on first tool use");
+    }
     
     // Cleanup on exit
     process.on('SIGINT', () => {
-      console.error('\n🧹 Cleaning up...');
-      ragKgManager.cleanup();
+      if (process.env.MCP_DEBUG) {
+        console.error('\n🧹 Cleaning up...');
+      }
+      if (isInitialized) {
+        ragKgManager.cleanup();
+      }
       process.exit(0);
     });
     
   } catch (error) {
-    console.error("Failed to initialize server:", error);
-    ragKgManager.cleanup();
+    console.error("Failed to start server:", error);
     process.exit(1);
   }
 }
