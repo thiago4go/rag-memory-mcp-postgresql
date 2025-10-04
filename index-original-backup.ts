@@ -2485,6 +2485,9 @@ const server = new Server({
 // Use our new structured tool system for listing tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const tools = getAllMCPTools();
+  if (process.env.MCP_DEBUG) {
+    console.error(`📋 Serving ${tools.length} tools with comprehensive documentation`);
+  }
   return { tools };
 });
 
@@ -2585,8 +2588,14 @@ async function ensureInitialized(): Promise<void> {
   }
   
   initializationPromise = (async () => {
+    if (process.env.MCP_DEBUG) {
+      console.error("🔄 Initializing RAG system on first use...");
+    }
     await ragKgManager.initialize();
     isInitialized = true;
+    if (process.env.MCP_DEBUG) {
+      console.error("✅ RAG system initialized successfully");
+    }
   })();
   
   await initializationPromise;
@@ -2598,8 +2607,18 @@ async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     
+    // Minimal startup logging - only essential info
+    console.error("🚀 Enhanced RAG Knowledge Graph MCP Server running on stdio");
+    if (process.env.MCP_DEBUG) {
+      console.error("📊 System Info: 18 tools available (6 knowledge graph, 6 RAG, 6 query)");
+      console.error("⚡ RAG system will initialize on first tool use");
+    }
+    
     // Cleanup on exit
     process.on('SIGINT', () => {
+      if (process.env.MCP_DEBUG) {
+        console.error('\n🧹 Cleaning up...');
+      }
       if (isInitialized) {
         ragKgManager.cleanup();
       }
