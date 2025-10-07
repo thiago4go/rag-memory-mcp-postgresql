@@ -358,10 +358,7 @@ Ensures no orphaned data remains after document removal.
 </examples>`;
 
 const deleteDocumentsSchema: z.ZodRawShape = {
-  documentIds: z.union([
-    z.string().describe('Single document ID to delete'),
-    z.array(z.string()).describe('Array of document IDs to delete')
-  ]).describe('Document ID(s) to delete - can be a single string or array of strings'),
+  documentIds: z.string().describe('Document ID(s) to delete - provide single ID or comma-separated IDs'),
 };
 
 export const deleteDocumentsTool: ToolDefinition = {
