@@ -456,19 +456,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // Enhanced server startup with proper error handling
 async function startServer(): Promise<void> {
   try {
-    // Initialize server components
-    await initializeServer();
-    
     // Create transport
     const transport = new StdioServerTransport();
     
-    // Connect server to transport
+    // Connect server to transport FIRST (before heavy initialization)
     await server.connect(transport);
     
     if (process.env.MCP_DEBUG) {
       console.error(`🚀 ${SERVER_NAME} v${SERVER_VERSION} started successfully`);
       console.error(`📊 Database: ${dbConfig.type.toUpperCase()}`);
       console.error(`🔧 Vector dimensions: ${dbConfig.vectorDimensions}`);
+      console.error(`⏳ Database and AI models will initialize on first use`);
     }
   } catch (error) {
     console.error('❌ Failed to start server:', error);
