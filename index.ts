@@ -175,36 +175,16 @@ let dbConfig: DatabaseConfig;
 
 // Enhanced DB_TYPE environment variable handling
 const dbType = process.env.DB_TYPE?.toLowerCase();
-if (process.env.MCP_DEBUG) {
-  console.error(`🔧 Database Type Configuration: ${dbType || 'not set (defaulting to SQLite)'}`);
-}
 
 // Load database configuration
 if (dbType && dbType !== 'sqlite') {
   try {
     dbConfig = configManager.loadFromEnvironment();
-    if (process.env.MCP_DEBUG) {
-      console.error(`✅ Database configuration loaded successfully: ${dbConfig.type}`);
-    }
   } catch (error) {
-    console.error(`❌ Failed to load ${dbType.toUpperCase()} configuration from environment variables:`);
-    console.error(`   Error: ${error instanceof Error ? error.message : String(error)}`);
-    
-    if (dbType === 'postgresql') {
-      console.error(`   Required PostgreSQL environment variables:`);
-      console.error(`   - PG_HOST (PostgreSQL server host)`);
-      console.error(`   - PG_PORT (PostgreSQL server port, e.g., 5432)`);
-      console.error(`   - PG_DATABASE (database name)`);
-      console.error(`   - PG_USERNAME (database username)`);
-      console.error(`   - PG_PASSWORD (database password)`);
-      console.error(`   Optional: PG_SSL (SSL configuration)`);
-    }
-    
-    console.error(`   Falling back to SQLite for compatibility`);
+    // Fallback to SQLite silently
     dbConfig = createSQLiteFallbackConfig();
   }
 } else {
-  console.error('📋 Using SQLite database (default or DB_TYPE=sqlite)');
   dbConfig = createSQLiteFallbackConfig();
 }
 
@@ -216,8 +196,6 @@ function createSQLiteFallbackConfig(): DatabaseConfig {
       ? process.env.DB_FILE_PATH
       : path.join(path.dirname(fileURLToPath(import.meta.url)), process.env.DB_FILE_PATH)
     : defaultDbPath;
-  
-  console.error(`📁 SQLite database path: ${DB_FILE_PATH}`);
   
   return {
     type: 'sqlite',
@@ -325,14 +303,8 @@ async function ensureInitialized(): Promise<void> {
   }
   
   initializationPromise = (async () => {
-    if (process.env.MCP_DEBUG) {
-      console.error("🔄 Initializing RAG system on first use...");
-    }
     await ragKgManager.initialize();
     isInitialized = true;
-    if (process.env.MCP_DEBUG) {
-      console.error("✅ RAG system initialized successfully");
-    }
   })();
   
   await initializationPromise;
@@ -461,65 +433,44 @@ async function startServer(): Promise<void> {
     
     // Connect server to transport FIRST (before heavy initialization)
     await server.connect(transport);
-    
-    if (process.env.MCP_DEBUG) {
-      console.error(`🚀 ${SERVER_NAME} v${SERVER_VERSION} started successfully`);
-      console.error(`📊 Database: ${dbConfig.type.toUpperCase()}`);
-      console.error(`🔧 Vector dimensions: ${dbConfig.vectorDimensions}`);
-      console.error(`⏳ Database and AI models will initialize on first use`);
-    }
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
     process.exit(1);
   }
 }
 
 // Graceful shutdown handling
 process.on('SIGINT', async () => {
-  if (process.env.MCP_DEBUG) {
-    console.error('🛑 Received SIGINT, shutting down gracefully...');
-  }
-  
   try {
     if (db) {
       await db.close();
     }
     process.exit(0);
   } catch (error) {
-    console.error('❌ Error during shutdown:', error);
     process.exit(1);
   }
 });
 
 process.on('SIGTERM', async () => {
-  if (process.env.MCP_DEBUG) {
-    console.error('🛑 Received SIGTERM, shutting down gracefully...');
-  }
-  
   try {
     if (db) {
       await db.close();
     }
     process.exit(0);
   } catch (error) {
-    console.error('❌ Error during shutdown:', error);
     process.exit(1);
   }
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught exception:', error);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled rejection at:', promise, 'reason:', reason);
   process.exit(1);
 });
 
 // Start the server
 startServer().catch((error) => {
-  console.error('❌ Fatal error starting server:', error);
   process.exit(1);
 });
