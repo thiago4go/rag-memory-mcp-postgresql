@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "lib": ["ES2022"],
     "outDir": "./dist",
     "rootDir": ".",
@@ -13,7 +13,13 @@
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmitOnError": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": false
   },
   "include": [
     "./**/*.ts"
@@ -22,7 +28,9 @@
     "node_modules",
     "dist",
     "src/testing",
-    "**/*-old.ts"
+    "**/*-old.ts",
+    "index-minimal.ts",
+    "index-original-backup.ts"
   ]
 }
   

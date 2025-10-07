@@ -1,6 +1,6 @@
 {
   "name": "rag-memory-mcp",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Advanced MCP server for RAG-enabled memory through a knowledge graph with vector search",
   "license": "MIT",
   "author": "ttommyth",
@@ -14,23 +14,31 @@
   "bin": {
     "rag-memory-mcp": "dist/index.js"
   },
+  "main": "dist/index.js",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "build": "tsc && shx chmod +x dist/*.js",
     "prepare": "npm run build",
     "watch": "tsc --watch",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
     "test": "npm run build && node dist/src/testing/test-runner-simple-fixed.js",
     "test:simple": "npm run build && node dist/src/testing/test-runner-simple-fixed.js",
     "test:coverage": "npm run test && echo 'Test coverage report available in test-results/'",
-    "test:watch": "npm run build && node --watch dist/src/testing/test-runner-simple-fixed.js"
+    "test:watch": "npm run build && node --watch dist/src/testing/test-runner-simple-fixed.js",
+    "clean": "shx rm -rf dist"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.5.1",
-    "@modelcontextprotocol/sdk": "1.0.1",
-    "@types/dotenv": "^6.1.1",
-    "better-sqlite3": "11.9.1",
+    "@modelcontextprotocol/sdk": "^1.19.1",
+    "better-sqlite3": "^11.9.1",
     "commander": "^14.0.0",
     "dotenv": "^16.5.0",
     "pg": "^8.12.0",
@@ -41,9 +49,22 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/commander": "^2.12.0",
+    "@types/dotenv": "^6.1.1",
     "@types/node": "^22",
     "@types/pg": "^8.11.10",
     "shx": "^0.3.4",
     "typescript": "^5.6.2"
-  }
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "rag",
+    "vector-search",
+    "knowledge-graph",
+    "memory",
+    "ai",
+    "llm",
+    "postgresql",
+    "sqlite"
+  ]
 }
