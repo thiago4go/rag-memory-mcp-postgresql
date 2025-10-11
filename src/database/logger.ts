@@ -262,6 +262,11 @@ export class ConsoleLogger implements DatabaseLogger {
    * Output the formatted message
    */
   private output(level: LogLevel, message: string): void {
+    // Silent mode for MCP stdio communication
+    if (process.env.MCP_SILENT === 'true') {
+      return;
+    }
+    
     switch (level) {
       case LogLevel.DEBUG:
         console.debug(message);

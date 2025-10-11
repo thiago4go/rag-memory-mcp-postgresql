@@ -5,6 +5,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
@@ -33,40 +35,50 @@ if (env.backends?.onnx?.wasm) {
   env.backends.onnx.wasm.wasmPaths = './node_modules/@huggingface/transformers/dist/';
 }
 
+// Silent mode for MCP stdio communication
+const SILENT_MODE = process.env.MCP_SILENT === 'true';
+const log = (...args: any[]) => { if (!SILENT_MODE) console.error(...args); };
+
+// Suppress transformers library warnings in silent mode
+if (SILENT_MODE) {
+  env.allowLocalModels = false;
+  env.allowRemoteModels = true;
+}
+
 // Database configuration setup - now using database factory with environment-based selection
 const configManager = new ConfigManager();
 let dbConfig: DatabaseConfig;
 
 // Enhanced DB_TYPE environment variable handling with better error messages
 const dbType = process.env.DB_TYPE?.toLowerCase();
-console.error(`🔧 Database Type Configuration: ${dbType || 'not set (defaulting to SQLite)'}`);  
+log(`🔧 Database Type Configuration: ${dbType || 'not set (defaulting to SQLite)'}`);  
 
 // Load database configuration based on DB_TYPE environment variable
 if (dbType && dbType !== 'sqlite') {
   // User explicitly requested a specific database type
   try {
     dbConfig = configManager.loadFromEnvironment();
-    console.error(`✅ Database configuration loaded successfully: ${dbConfig.type}`);
+    log(`✅ Database configuration loaded successfully: ${dbConfig.type}`);
   } catch (error) {
-    console.error(`❌ Failed to load ${dbType.toUpperCase()} configuration from environment variables:`);
-    console.error(`   Error: ${error instanceof Error ? error.message : String(error)}`);
+    log(`❌ Failed to load ${dbType.toUpperCase()} configuration from environment variables:`);
+    log(`   Error: ${error instanceof Error ? error.message : String(error)}`);
     
     if (dbType === 'postgresql') {
-      console.error(`   Required PostgreSQL environment variables:`);
-      console.error(`   - PG_HOST (PostgreSQL server host)`);
-      console.error(`   - PG_PORT (PostgreSQL server port, e.g., 5432)`);
-      console.error(`   - PG_DATABASE (database name)`);
-      console.error(`   - PG_USERNAME (database username)`);
-      console.error(`   - PG_PASSWORD (database password)`);
-      console.error(`   Optional: PG_SSL (SSL configuration)`);
+      log(`   Required PostgreSQL environment variables:`);
+      log(`   - PG_HOST (PostgreSQL server host)`);
+      log(`   - PG_PORT (PostgreSQL server port, e.g., 5432)`);
+      log(`   - PG_DATABASE (database name)`);
+      log(`   - PG_USERNAME (database username)`);
+      log(`   - PG_PASSWORD (database password)`);
+      log(`   Optional: PG_SSL (SSL configuration)`);
     }
     
-    console.error(`   Falling back to SQLite for compatibility`);
+    log(`   Falling back to SQLite for compatibility`);
     dbConfig = createSQLiteFallbackConfig();
   }
 } else {
   // No DB_TYPE specified or explicitly SQLite - use SQLite with environment customization
-  console.error('📋 Using SQLite database (default or DB_TYPE=sqlite)');
+  log('📋 Using SQLite database (default or DB_TYPE=sqlite)');
   dbConfig = createSQLiteFallbackConfig();
 }
 
@@ -79,7 +91,7 @@ function createSQLiteFallbackConfig(): DatabaseConfig {
       : path.join(path.dirname(fileURLToPath(import.meta.url)), process.env.DB_FILE_PATH)
     : defaultDbPath;
   
-  console.error(`📁 SQLite database path: ${DB_FILE_PATH}`);
+  log(`📁 SQLite database path: ${DB_FILE_PATH}`);
   
   return {
     type: 'sqlite',
@@ -190,18 +202,18 @@ class RAGKnowledgeGraphManager {
   private modelInitialized: boolean = false;
 
   async initialize() {
-    console.error('🚀 Initializing RAG Knowledge Graph MCP Server...');
+    log('🚀 Initializing RAG Knowledge Graph MCP Server...');
     
     try {
       // Initialize database using factory pattern for PostgreSQL only
       // SQLite adapter has incomplete implementation, so use legacy path
       if (dbConfig.type === 'postgresql') {
-        console.error('🔧 Creating PostgreSQL database adapter...');
+        log('🔧 Creating PostgreSQL database adapter...');
         const factory = DatabaseFactory.getInstance();
         this.dbAdapter = await factory.createAdapter(dbConfig);
-        console.error(`✅ PostgreSQL database adapter created: ${!!this.dbAdapter}`);
+        log(`✅ PostgreSQL database adapter created: ${!!this.dbAdapter}`);
       } else {
-        console.error('🔧 Using SQLite legacy implementation (adapter not fully implemented)');
+        log('🔧 Using SQLite legacy implementation (adapter not fully implemented)');
         this.dbAdapter = null;
       }
       
@@ -209,12 +221,12 @@ class RAGKnowledgeGraphManager {
       if (dbConfig.type === 'sqlite') {
         this.db = new Database((dbConfig as any).sqlite.filePath);
         sqliteVec.load(this.db);
-        console.error('✅ SQLite database with vector extension loaded');
+        log('✅ SQLite database with vector extension loaded');
       }
       
-      console.error('✅ Database initialization completed');
+      log('✅ Database initialization completed');
     } catch (error) {
-      console.error('❌ Database initialization failed:', error);
+      log('❌ Database initialization failed:', error);
       throw error;
     }
     
@@ -227,20 +239,27 @@ class RAGKnowledgeGraphManager {
     // Run database migrations
     await this.runMigrations();
     
-    console.error('✅ RAG-enabled knowledge graph initialized');
+    log('✅ RAG-enabled knowledge graph initialized');
     
     // Log system info
     const systemInfo = getSystemInfo();
-    console.error(`📊 System Info: ${systemInfo.toolCounts.total} tools available (${systemInfo.toolCounts.knowledgeGraph} knowledge graph, ${systemInfo.toolCounts.rag} RAG, ${systemInfo.toolCounts.graphQuery} query)`);
+    log(`📊 System Info: ${systemInfo.toolCounts.total} tools available (${systemInfo.toolCounts.knowledgeGraph} knowledge graph, ${systemInfo.toolCounts.rag} RAG, ${systemInfo.toolCounts.graphQuery} query)`);
   }
 
   private async initializeEmbeddingModel() {
+    // Suppress transformers library warnings in silent mode
+    const originalStderrWrite = SILENT_MODE ? process.stderr.write : null;
+    
     try {
-      console.error('🤖 Loading sentence transformer model: all-MiniLM-L12-v2...');
+      log('🤖 Loading sentence transformer model: all-MiniLM-L12-v2...');
       
       // Configure environment to allow remote model downloads
       env.allowRemoteModels = true;
       env.allowLocalModels = true;
+      
+      if (SILENT_MODE) {
+        process.stderr.write = () => true;
+      }
       
       this.embeddingModel = await pipeline(
         'feature-extraction',
@@ -250,18 +269,27 @@ class RAGKnowledgeGraphManager {
         }
       );
       
+      // Restore stderr
+      if (SILENT_MODE && originalStderrWrite) {
+        process.stderr.write = originalStderrWrite;
+      }
+      
       this.modelInitialized = true;
-      console.error('✅ Sentence transformer model loaded successfully');
+      log('✅ Sentence transformer model loaded successfully');
       
     } catch (error) {
-      console.error('❌ Failed to load embedding model:', error);
-      console.error('📋 Falling back to simple embedding generation');
+      // Restore stderr on error too
+      if (SILENT_MODE && originalStderrWrite) {
+        process.stderr.write = originalStderrWrite;
+      }
+      log('❌ Failed to load embedding model:', error);
+      log('📋 Falling back to simple embedding generation');
       this.modelInitialized = false;
     }
   }
 
   async runMigrations(): Promise<{ applied: number; currentVersion: number; appliedMigrations: Array<{ version: number; description: string }> }> {
-    console.error('🔄 Running database migrations...');
+    log('🔄 Running database migrations...');
     
     // Use database adapter migrations if available, otherwise fallback to legacy
     if (this.dbAdapter) {
@@ -275,7 +303,7 @@ class RAGKnowledgeGraphManager {
         });
         
         const result = await migrationManager.runMigrations();
-        console.error(`🔧 Database schema ready (version ${result.currentVersion}, ${result.applied} migrations applied)`);
+        log(`🔧 Database schema ready (version ${result.currentVersion}, ${result.applied} migrations applied)`);
         
         return {
           applied: result.applied,
@@ -286,7 +314,7 @@ class RAGKnowledgeGraphManager {
           }))
         };
       } catch (error) {
-        console.error('❌ PostgreSQL adapter migration failed:', error);
+        log('❌ PostgreSQL adapter migration failed:', error);
         throw error;
       }
     } else {
@@ -308,7 +336,7 @@ class RAGKnowledgeGraphManager {
       // Run pending migrations
       const result = await migrationManager.runMigrations();
       
-      console.error(`🔧 Database schema ready (version ${result.currentVersion}, ${result.applied} migrations applied)`);
+      log(`🔧 Database schema ready (version ${result.currentVersion}, ${result.applied} migrations applied)`);
       
       return {
         applied: result.applied,
@@ -368,7 +396,7 @@ class RAGKnowledgeGraphManager {
         newEntities.push(entity);
         
         // Generate embedding for the new entity
-        console.error(`🔮 Generating embedding for new entity: ${entity.name}`);
+        log(`🔮 Generating embedding for new entity: ${entity.name}`);
         await this.embedEntity(entityId);
       }
     }
@@ -379,7 +407,7 @@ class RAGKnowledgeGraphManager {
   async createRelations(relations: Relation[]): Promise<Relation[]> {
     // PostgreSQL database adapter fallback
     if (this.dbAdapter) {
-      console.error('🐘 Using PostgreSQL adapter for createRelations');
+      log('🐘 Using PostgreSQL adapter for createRelations');
       await this.dbAdapter.createRelations(relations);
       return relations; // Return the input relations as created
     }
@@ -418,7 +446,7 @@ class RAGKnowledgeGraphManager {
   async addObservations(observations: { entityName: string; contents: string[] }[]): Promise<{ entityName: string; addedObservations: string[] }[]> {
     // PostgreSQL database adapter fallback
     if (this.dbAdapter) {
-      console.error('🐘 Using PostgreSQL adapter for addObservations');
+      log('🐘 Using PostgreSQL adapter for addObservations');
       const observationAdditions = observations.map(obs => ({
         entityName: obs.entityName,
         contents: obs.contents
@@ -459,7 +487,7 @@ class RAGKnowledgeGraphManager {
         `).run(JSON.stringify(updatedObservations), entityId);
         
         // Regenerate embedding for the updated entity
-        console.error(`🔮 Regenerating embedding for updated entity: ${obs.entityName}`);
+        log(`🔮 Regenerating embedding for updated entity: ${obs.entityName}`);
         await this.embedEntity(entityId);
       }
       
@@ -472,14 +500,14 @@ class RAGKnowledgeGraphManager {
   async deleteEntities(entityNames: string[]): Promise<void> {
     // PostgreSQL database adapter fallback
     if (this.dbAdapter) {
-      console.error('🐘 Using PostgreSQL adapter for deleteEntities');
+      log('🐘 Using PostgreSQL adapter for deleteEntities');
       return await this.dbAdapter.deleteEntities(entityNames);
     }
     
     // SQLite implementation
     if (!this.db) throw new Error('Database not initialized');
     
-    console.error(`🗑️ Deleting entities: ${entityNames.join(', ')}`);
+    log(`🗑️ Deleting entities: ${entityNames.join(', ')}`);
     
     for (const name of entityNames) {
       const entityId = `entity_${name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
@@ -510,7 +538,7 @@ class RAGKnowledgeGraphManager {
           `).run(entityId);
           
           if (embeddings.changes > 0 || metadata.changes > 0) {
-            console.error(`  ├─ Removed entity embeddings for '${name}'`);
+            log(`  ├─ Removed entity embeddings for '${name}'`);
           }
         }
         
@@ -519,7 +547,7 @@ class RAGKnowledgeGraphManager {
           DELETE FROM chunk_entities WHERE entity_id = ?
         `).run(entityId);
         if (chunkAssociations.changes > 0) {
-          console.error(`  ├─ Removed ${chunkAssociations.changes} chunk associations for '${name}'`);
+          log(`  ├─ Removed ${chunkAssociations.changes} chunk associations for '${name}'`);
         }
         
         // Step 2: Delete relationships where this entity is involved
@@ -528,7 +556,7 @@ class RAGKnowledgeGraphManager {
           WHERE source_entity = ? OR target_entity = ?
         `).run(entityId, entityId);
         if (relationships.changes > 0) {
-          console.error(`  ├─ Removed ${relationships.changes} relationships for '${name}'`);
+          log(`  ├─ Removed ${relationships.changes} relationships for '${name}'`);
         }
         
         // Step 3: Finally delete the entity itself
@@ -536,18 +564,18 @@ class RAGKnowledgeGraphManager {
           DELETE FROM entities WHERE id = ?
         `).run(entityId);
         if (entity.changes > 0) {
-          console.error(`  └─ Deleted entity '${name}' successfully`);
+          log(`  └─ Deleted entity '${name}' successfully`);
         } else {
           console.warn(`  └─ Entity '${name}' was not deleted (possibly already removed)`);
         }
         
       } catch (error) {
-        console.error(`❌ Failed to delete entity '${name}':`, error);
+        log(`❌ Failed to delete entity '${name}':`, error);
         // Continue with other entities instead of failing completely
       }
     }
     
-    console.error(`✅ Entity deletion process completed`);
+    log(`✅ Entity deletion process completed`);
   }
 
   async deleteObservations(deletions: { entityName: string; observations: string[] }[]): Promise<void> {
@@ -601,7 +629,7 @@ class RAGKnowledgeGraphManager {
   async readGraph(): Promise<KnowledgeGraph> {
     // PostgreSQL database adapter fallback
     if (this.dbAdapter) {
-      console.error('🐘 Using PostgreSQL adapter for readGraph');
+      log('🐘 Using PostgreSQL adapter for readGraph');
       return await this.dbAdapter.readGraph();
     }
     
@@ -646,7 +674,7 @@ class RAGKnowledgeGraphManager {
     // SQLite implementation
     if (!this.db) throw new Error('Database not initialized');
     
-    console.error(`🔍 Semantic node search: "${query}", types: ${nodeTypesToSearch.join(', ')}`);
+    log(`🔍 Semantic node search: "${query}", types: ${nodeTypesToSearch.join(', ')}`);
     const queryEmbedding = await this.generateEmbedding(query);
 
     const results: KnowledgeGraph & { documentChunks?: any[] } = { entities: [], relations: [], documentChunks: [] };
@@ -704,7 +732,7 @@ class RAGKnowledgeGraphManager {
           results.relations.push(...relations);
         }
       }
-      console.error(`✅ Found ${results.entities.length} entities and ${results.relations.length} related relations.`);
+      log(`✅ Found ${results.entities.length} entities and ${results.relations.length} related relations.`);
     }
 
     if (nodeTypesToSearch.includes('documentChunk')) {
@@ -744,7 +772,7 @@ class RAGKnowledgeGraphManager {
           }));
           results.documentChunks?.push(...foundChunks);
         }
-        console.error(`✅ Found ${results.documentChunks?.length || 0} document chunks.`);
+        log(`✅ Found ${results.documentChunks?.length || 0} document chunks.`);
       }
     }
     return results;
@@ -990,10 +1018,10 @@ class RAGKnowledgeGraphManager {
       `);
       vecStmt.run(entityId, embedding);
 
-      console.error(`✅ Embedded entity: ${entityRow.name} (ID: ${entityId})`);
+      log(`✅ Embedded entity: ${entityRow.name} (ID: ${entityId})`);
       return true;
     } catch (error) {
-      console.error(`Error embedding entity ${entityId}:`, error);
+      log(`Error embedding entity ${entityId}:`, error);
       return false;
     }
   }
@@ -1010,7 +1038,7 @@ class RAGKnowledgeGraphManager {
     
     if (!this.db) throw new Error('Database not initialized');
     
-    console.error('🔮 Generating embeddings for all entities...');
+    log('🔮 Generating embeddings for all entities...');
     
     const entities = this.db.prepare(`
       SELECT id FROM entities
@@ -1025,7 +1053,7 @@ class RAGKnowledgeGraphManager {
       }
     }
     
-    console.error(`✅ Entity embeddings completed: ${embeddedCount}/${entities.length} entities embedded`);
+    log(`✅ Entity embeddings completed: ${embeddedCount}/${entities.length} entities embedded`);
     
     return {
       totalEntities: entities.length,
@@ -1040,7 +1068,7 @@ class RAGKnowledgeGraphManager {
     totalKnowledgeGraphChunksReEmbedded: number; 
   }> {
     if (this.dbAdapter) {
-      console.error('🚀 Starting full re-embedding process (using database adapter)...');
+      log('🚀 Starting full re-embedding process (using database adapter)...');
       
       let totalEntitiesReEmbedded = 0;
       let totalDocumentsProcessed = 0;
@@ -1050,29 +1078,29 @@ class RAGKnowledgeGraphManager {
       // 1. Re-embed all entities
       const entityEmbeddingResult = await this.embedAllEntities();
       totalEntitiesReEmbedded = entityEmbeddingResult.embeddedEntities;
-      console.error(`✅ Entities re-embedded: ${totalEntitiesReEmbedded}/${entityEmbeddingResult.totalEntities}`);
+      log(`✅ Entities re-embedded: ${totalEntitiesReEmbedded}/${entityEmbeddingResult.totalEntities}`);
 
       // 2. Re-embed all document chunks
-      console.error('📚 Re-embedding all document chunks...');
+      log('📚 Re-embedding all document chunks...');
       const documentsResult = await this.listDocuments(false); // Get only IDs
       const documentIds = documentsResult.documents.map(doc => doc.id);
       
       for (const docId of documentIds) {
         try {
-          console.error(`  📄 Processing document: ${docId}`);
+          log(`  📄 Processing document: ${docId}`);
           const chunkEmbedResult = await this.embedChunks(docId);
           totalDocumentChunksReEmbedded += chunkEmbedResult.embeddedChunks;
           totalDocumentsProcessed++;
         } catch (error) {
-          console.error(`  ❌ Error re-embedding document ${docId}:`, error);
+          log(`  ❌ Error re-embedding document ${docId}:`, error);
         }
       }
-      console.error(`✅ Document chunks re-embedded: ${totalDocumentChunksReEmbedded} chunks across ${totalDocumentsProcessed} documents.`);
+      log(`✅ Document chunks re-embedded: ${totalDocumentChunksReEmbedded} chunks across ${totalDocumentsProcessed} documents.`);
 
       // Note: Knowledge graph chunks are SQLite-specific, so they're skipped for database adapters
-      console.error('ℹ️ Knowledge graph chunks are not supported with database adapters');
+      log('ℹ️ Knowledge graph chunks are not supported with database adapters');
 
-      console.error('🚀 Full re-embedding process completed (database adapter mode).');
+      log('🚀 Full re-embedding process completed (database adapter mode).');
       return {
         totalEntitiesReEmbedded,
         totalDocumentsProcessed,
@@ -1082,7 +1110,7 @@ class RAGKnowledgeGraphManager {
     }
     
     if (!this.db) throw new Error('Database not initialized');
-    console.error('🚀 Starting full re-embedding process...');
+    log('🚀 Starting full re-embedding process...');
 
     let totalEntitiesReEmbedded = 0;
     let totalDocumentsProcessed = 0;
@@ -1092,16 +1120,16 @@ class RAGKnowledgeGraphManager {
     // 1. Re-embed all entities
     const entityEmbeddingResult = await this.embedAllEntities();
     totalEntitiesReEmbedded = entityEmbeddingResult.embeddedEntities;
-    console.error(`✅ Entities re-embedded: ${totalEntitiesReEmbedded}/${entityEmbeddingResult.totalEntities}`);
+    log(`✅ Entities re-embedded: ${totalEntitiesReEmbedded}/${entityEmbeddingResult.totalEntities}`);
 
     // 2. Re-embed all document chunks
-    console.error('📚 Re-embedding all document chunks...');
+    log('📚 Re-embedding all document chunks...');
     const documentsResult = await this.listDocuments(false); // Get only IDs
     const documentIds = documentsResult.documents.map(doc => doc.id);
     
     for (const docId of documentIds) {
       try {
-        console.error(`  📄 Processing document: ${docId}`);
+        log(`  📄 Processing document: ${docId}`);
         // First, re-chunk the document to ensure chunks are up-to-date with current logic
         // Note: storeDocument handles chunking and then embedding.
         // To ensure re-embedding with potentially updated chunking logic, we can call storeDocument.
@@ -1126,20 +1154,20 @@ class RAGKnowledgeGraphManager {
         // }
 
       } catch (error) {
-        console.error(`  ❌ Error re-embedding document ${docId}:`, error);
+        log(`  ❌ Error re-embedding document ${docId}:`, error);
       }
     }
-    console.error(`✅ Document chunks re-embedded: ${totalDocumentChunksReEmbedded} chunks across ${totalDocumentsProcessed} documents.`);
+    log(`✅ Document chunks re-embedded: ${totalDocumentChunksReEmbedded} chunks across ${totalDocumentsProcessed} documents.`);
 
     // 3. Re-embed all knowledge graph chunks
     // Ensure KG chunks are generated first if they can be out of sync
-    console.error('🧠 Generating and re-embedding knowledge graph chunks...');
+    log('🧠 Generating and re-embedding knowledge graph chunks...');
     await this.generateKnowledgeGraphChunks(); // This cleans up old KG chunks and generates new ones
     const kgChunkEmbedResult = await this.embedKnowledgeGraphChunks();
     totalKnowledgeGraphChunksReEmbedded = kgChunkEmbedResult.embeddedChunks;
-    console.error(`✅ Knowledge graph chunks re-embedded: ${totalKnowledgeGraphChunksReEmbedded}`);
+    log(`✅ Knowledge graph chunks re-embedded: ${totalKnowledgeGraphChunksReEmbedded}`);
 
-    console.error('🚀 Full re-embedding process completed.');
+    log('🚀 Full re-embedding process completed.');
     return {
       totalEntitiesReEmbedded,
       totalDocumentsProcessed,
@@ -1152,7 +1180,7 @@ class RAGKnowledgeGraphManager {
   async generateKnowledgeGraphChunks(): Promise<{ entityChunks: number; relationshipChunks: number }> {
     if (!this.db) throw new Error('Database not initialized');
     
-    console.error('🧠 Generating knowledge graph chunks...');
+    log('🧠 Generating knowledge graph chunks...');
     
     // Clean up existing knowledge graph chunks
     await this.cleanupKnowledgeGraphChunks();
@@ -1221,7 +1249,7 @@ class RAGKnowledgeGraphManager {
       relationshipChunks++;
     }
     
-    console.error(`✅ Knowledge graph chunks generated: ${entityChunks} entities, ${relationshipChunks} relationships`);
+    log(`✅ Knowledge graph chunks generated: ${entityChunks} entities, ${relationshipChunks} relationships`);
     
     return { entityChunks, relationshipChunks };
   }
@@ -1242,7 +1270,7 @@ class RAGKnowledgeGraphManager {
       `).all() as { chunk_id: string; text: string }[];
 
       if (kgChunkMetadata.length === 0) {
-        console.error('No knowledge graph chunks to embed.');
+        log('No knowledge graph chunks to embed.');
         return { embeddedChunks: 0 };
       }
       
@@ -1265,12 +1293,12 @@ class RAGKnowledgeGraphManager {
             console.warn(`🚫 Failed to generate embedding for KG chunk: ${chunk.chunk_id}`);
           }
         } catch (embedError) {
-          console.error(`Error embedding KG chunk ${chunk.chunk_id}:`, embedError);
+          log(`Error embedding KG chunk ${chunk.chunk_id}:`, embedError);
         }
       }
-      console.error(`✅ Embedded ${embeddedCount} knowledge graph chunks.`);
+      log(`✅ Embedded ${embeddedCount} knowledge graph chunks.`);
     } catch (error) {
-      console.error('Error embedding knowledge graph chunks:', error);
+      log('Error embedding knowledge graph chunks:', error);
     }
     return { embeddedChunks: embeddedCount };
   }
@@ -1292,7 +1320,7 @@ class RAGKnowledgeGraphManager {
   private async cleanupKnowledgeGraphChunks(): Promise<void> {
     if (!this.db) return;
     
-    console.error('🧹 Cleaning up existing knowledge graph chunks...');
+    log('🧹 Cleaning up existing knowledge graph chunks...');
     
     // Get existing knowledge graph chunk IDs
     const kgChunkIds = this.db.prepare(`
@@ -1340,11 +1368,11 @@ class RAGKnowledgeGraphManager {
     `).run();
     
     if (kgChunkIds.length > 0 || existingChunksMetadataForAssociations.length > 0) {
-      console.error(`  ├─ Deleted ${deletedVectors} vector embeddings (by chunk_id)`);
+      log(`  ├─ Deleted ${deletedVectors} vector embeddings (by chunk_id)`);
       if (existingChunksMetadataForAssociations.length > 0) {
-        console.error(`  ├─ Deleted ${deletedAssociations} entity associations (by chunk_metadata.rowid)`);
+        log(`  ├─ Deleted ${deletedAssociations} entity associations (by chunk_metadata.rowid)`);
       }
-      console.error(`  └─ Deleted ${metadata.changes} chunk metadata records`);
+      log(`  └─ Deleted ${metadata.changes} chunk metadata records`);
     }
   }
 
@@ -1378,7 +1406,7 @@ class RAGKnowledgeGraphManager {
           }
         });
       } catch (error) {
-        console.error('Invalid regex pattern:', patternStr, error);
+        log('Invalid regex pattern:', patternStr, error);
       }
     });
     
@@ -1422,7 +1450,7 @@ class RAGKnowledgeGraphManager {
         return new Float32Array(embedding.slice(0, dimensions));
         
       } catch (error) {
-        console.error('⚠️ Embedding model failed, falling back to enhanced general semantic embedding:', error);
+        log('⚠️ Embedding model failed, falling back to enhanced general semantic embedding:', error);
         // Fall through to enhanced general implementation
       }
     }
@@ -1622,7 +1650,7 @@ class RAGKnowledgeGraphManager {
   async storeDocument(id: string, content: string, metadata: Record<string, any> = {}): Promise<{ id: string; stored: boolean; chunksCreated?: number; chunksEmbedded?: number }> {
     // PostgreSQL database adapter fallback
     if (this.dbAdapter) {
-      console.error('🐘 Using PostgreSQL adapter for storeDocument');
+      log('🐘 Using PostgreSQL adapter for storeDocument');
       const result = await this.dbAdapter.storeDocument(id, content, metadata);
       return {
         id: result.id,
@@ -1635,7 +1663,7 @@ class RAGKnowledgeGraphManager {
     // SQLite implementation
     if (!this.db) throw new Error('Database not initialized');
     
-    console.error(`📄 Storing document: ${id}`);
+    log(`📄 Storing document: ${id}`);
     
     // Clean up existing document data (including old chunks and their embeddings)
     await this.cleanupDocument(id);
@@ -1646,7 +1674,7 @@ class RAGKnowledgeGraphManager {
       VALUES (?, ?, ?)
     `).run(id, content, JSON.stringify(metadata));
     
-    console.error(`✅ Document stored: ${id}`);
+    log(`✅ Document stored: ${id}`);
 
     // NEW: Automatically chunk and embed the document after storing
     let chunksCreated = 0;
@@ -1655,15 +1683,15 @@ class RAGKnowledgeGraphManager {
     try {
       const chunkResult = await this.chunkDocument(id);
       chunksCreated = chunkResult.chunks.length;
-      console.error(`📄 Document ${id} chunked: ${chunksCreated} chunks created.`);
+      log(`📄 Document ${id} chunked: ${chunksCreated} chunks created.`);
 
       if (chunksCreated > 0) {
         const embedResult = await this.embedChunks(id);
         chunksEmbedded = embedResult.embeddedChunks;
-        console.error(`📄 Document ${id} chunks embedded: ${chunksEmbedded} embeddings created.`);
+        log(`📄 Document ${id} chunks embedded: ${chunksEmbedded} embeddings created.`);
       }
     } catch (error) {
-      console.error(`❌ Error during automatic chunking/embedding for document ${id}:`, error);
+      log(`❌ Error during automatic chunking/embedding for document ${id}:`, error);
       // Storing was successful, but chunking/embedding failed. Return partial success.
     }
 
@@ -1688,7 +1716,7 @@ class RAGKnowledgeGraphManager {
     
     const { maxTokens = 200, overlap = 20 } = options;
     
-    console.error(`🔪 Chunking document: ${documentId} (maxTokens: ${maxTokens}, overlap: ${overlap})`);
+    log(`🔪 Chunking document: ${documentId} (maxTokens: ${maxTokens}, overlap: ${overlap})`);
     
     // Clean up existing chunks
     await this.cleanupDocument(documentId);
@@ -1715,14 +1743,14 @@ class RAGKnowledgeGraphManager {
       });
     }
     
-    console.error(`✅ Document chunked: ${chunks.length} chunks created`);
+    log(`✅ Document chunked: ${chunks.length} chunks created`);
     return { documentId, chunks: resultChunks };
   }
 
   async embedChunks(documentId: string): Promise<{ documentId: string; embeddedChunks: number }> {
     // PostgreSQL database adapter fallback
     if (this.dbAdapter) {
-      console.error('🐘 Using PostgreSQL adapter for embedChunks');
+      log('🐘 Using PostgreSQL adapter for embedChunks');
       const result = await this.dbAdapter.embedChunks(documentId);
       return { 
         documentId, 
@@ -1746,7 +1774,7 @@ class RAGKnowledgeGraphManager {
       `).all(documentId) as { chunk_id: string; text: string }[];
 
       if (chunksToEmbed.length === 0) {
-        console.error(`No document chunks to embed for document ${documentId}.`);
+        log(`No document chunks to embed for document ${documentId}.`);
         return { documentId, embeddedChunks: 0 };
       }
 
@@ -1766,12 +1794,12 @@ class RAGKnowledgeGraphManager {
             console.warn(`🚫 Failed to generate embedding for chunk: ${chunk.chunk_id} in document ${documentId}`);
           }
         } catch (embedError) {
-          console.error(`Error embedding chunk ${chunk.chunk_id} for document ${documentId}:`, embedError);
+          log(`Error embedding chunk ${chunk.chunk_id} for document ${documentId}:`, embedError);
         }
       }
-      console.error(`✅ Embedded ${embeddedCount} chunks for document ${documentId}.`);
+      log(`✅ Embedded ${embeddedCount} chunks for document ${documentId}.`);
     } catch (error) {
-      console.error(`Error embedding chunks for document ${documentId}:`, error);
+      log(`Error embedding chunks for document ${documentId}:`, error);
     }
     return { documentId, embeddedChunks: embeddedCount };
   }
@@ -1796,11 +1824,11 @@ class RAGKnowledgeGraphManager {
       throw new Error(`Document with ID ${documentId} not found`);
     }
     
-    console.error(`🔍 Extracting terms from document: ${documentId}`);
+    log(`🔍 Extracting terms from document: ${documentId}`);
     
     const terms = this.extractTermsFromText(document.content, options);
     
-    console.error(`✅ Terms extracted: ${terms.length} terms found`);
+    log(`✅ Terms extracted: ${terms.length} terms found`);
     return { documentId, terms };
   }
 
@@ -1815,7 +1843,7 @@ class RAGKnowledgeGraphManager {
     
     if (!this.db) throw new Error('Database not initialized');
     
-    console.error(`🔗 Linking entities to document: ${documentId}`);
+    log(`🔗 Linking entities to document: ${documentId}`);
     
     // Verify document exists
     const document = this.db.prepare(`
@@ -1857,14 +1885,14 @@ class RAGKnowledgeGraphManager {
       linkedCount++;
     }
     
-    console.error(`✅ Entities linked: ${linkedCount} entities linked to document`);
+    log(`✅ Entities linked: ${linkedCount} entities linked to document`);
     return { documentId, linkedEntities: linkedCount };
   }
 
   private async cleanupDocument(documentId: string): Promise<void> {
     if (!this.db) return;
     
-    console.error(`🧹 Cleaning up document: ${documentId}`);
+    log(`🧹 Cleaning up document: ${documentId}`);
     
     // Get existing chunk_ids for the document
     const docChunkIds = this.db.prepare(`
@@ -1901,16 +1929,16 @@ class RAGKnowledgeGraphManager {
     `).run(documentId);
     
     if (docChunkIds.length > 0 || existingChunksMetadataForAssociations.length > 0) {
-      console.error(`  ├─ Deleted ${deletedAssociations} entity associations (by chunk_metadata.rowid)`);
-      console.error(`  ├─ Deleted ${deletedVectors} vector embeddings (by chunk_id)`);
-      console.error(`  └─ Deleted ${metadata.changes} chunk metadata records`);
+      log(`  ├─ Deleted ${deletedAssociations} entity associations (by chunk_metadata.rowid)`);
+      log(`  ├─ Deleted ${deletedVectors} vector embeddings (by chunk_id)`);
+      log(`  └─ Deleted ${metadata.changes} chunk metadata records`);
     }
   }
 
   async deleteDocument(documentId: string): Promise<{ documentId: string; deleted: boolean }> {
     if (!this.db) throw new Error('Database not initialized');
     
-    console.error(`🗑️ Deleting document: ${documentId}`);
+    log(`🗑️ Deleting document: ${documentId}`);
     
     try {
       // Check if document exists
@@ -1932,7 +1960,7 @@ class RAGKnowledgeGraphManager {
       `).run(documentId);
       
       if (result.changes > 0) {
-        console.error(`✅ Document '${documentId}' deleted successfully`);
+        log(`✅ Document '${documentId}' deleted successfully`);
         return { documentId, deleted: true };
       } else {
         console.warn(`⚠️ Document '${documentId}' was not deleted`);
@@ -1940,7 +1968,7 @@ class RAGKnowledgeGraphManager {
       }
       
     } catch (error) {
-      console.error(`❌ Failed to delete document '${documentId}':`, error);
+      log(`❌ Failed to delete document '${documentId}':`, error);
       throw error;
     }
   }
@@ -1948,7 +1976,7 @@ class RAGKnowledgeGraphManager {
   async deleteMultipleDocuments(documentIds: string[]): Promise<{ results: Array<{ documentId: string; deleted: boolean }>; summary: { deleted: number; failed: number; total: number } }> {
     if (!this.db) throw new Error('Database not initialized');
     
-    console.error(`🗑️ Bulk deleting ${documentIds.length} documents`);
+    log(`🗑️ Bulk deleting ${documentIds.length} documents`);
     
     const results: Array<{ documentId: string; deleted: boolean }> = [];
     let deletedCount = 0;
@@ -1964,7 +1992,7 @@ class RAGKnowledgeGraphManager {
           failedCount++;
         }
       } catch (error) {
-        console.error(`❌ Failed to delete document '${documentId}':`, error);
+        log(`❌ Failed to delete document '${documentId}':`, error);
         results.push({ documentId, deleted: false });
         failedCount++;
       }
@@ -1976,7 +2004,7 @@ class RAGKnowledgeGraphManager {
       total: documentIds.length
     };
     
-    console.error(`✅ Bulk deletion completed: ${deletedCount} deleted, ${failedCount} failed, ${documentIds.length} total`);
+    log(`✅ Bulk deletion completed: ${deletedCount} deleted, ${failedCount} failed, ${documentIds.length} total`);
     
     return { results, summary };
   }
@@ -2002,7 +2030,7 @@ class RAGKnowledgeGraphManager {
     const idsArray = Array.isArray(documentIds) ? documentIds : [documentIds];
     const isMultiple = Array.isArray(documentIds);
     
-    console.error(`🗑️ Deleting ${idsArray.length} document${idsArray.length > 1 ? 's' : ''}`);
+    log(`🗑️ Deleting ${idsArray.length} document${idsArray.length > 1 ? 's' : ''}`);
     
     const results: Array<{ documentId: string; deleted: boolean }> = [];
     let deletedCount = 0;
@@ -2018,7 +2046,7 @@ class RAGKnowledgeGraphManager {
           failedCount++;
         }
       } catch (error) {
-        console.error(`❌ Failed to delete document '${documentId}':`, error);
+        log(`❌ Failed to delete document '${documentId}':`, error);
         results.push({ documentId, deleted: false });
         failedCount++;
       }
@@ -2031,21 +2059,21 @@ class RAGKnowledgeGraphManager {
     };
     
     const operation = isMultiple ? 'Bulk deletion' : 'Document deletion';
-    console.error(`✅ ${operation} completed: ${deletedCount} deleted, ${failedCount} failed, ${idsArray.length} total`);
+    log(`✅ ${operation} completed: ${deletedCount} deleted, ${failedCount} failed, ${idsArray.length} total`);
     
     return { results, summary };
   }
 
   async listDocuments(includeMetadata = true): Promise<{ documents: Array<{ id: string; metadata?: any; created_at: string }> }> {
     if (this.dbAdapter) {
-      console.error(`📋 Listing all documents (metadata: ${includeMetadata})`);
+      log(`📋 Listing all documents (metadata: ${includeMetadata})`);
       const docs = await this.dbAdapter.listDocuments(includeMetadata);
       return { documents: docs };
     }
     
     if (!this.db) throw new Error('Database not initialized');
     
-    console.error(`📋 Listing all documents (metadata: ${includeMetadata})`);
+    log(`📋 Listing all documents (metadata: ${includeMetadata})`);
     
     const query = includeMetadata 
       ? `SELECT id, metadata, created_at FROM documents ORDER BY created_at DESC`
@@ -2059,7 +2087,7 @@ class RAGKnowledgeGraphManager {
       created_at: row.created_at
     }));
     
-    console.error(`✅ Found ${documents.length} documents`);
+    log(`✅ Found ${documents.length} documents`);
     
     return { documents };
   }
@@ -2073,7 +2101,7 @@ class RAGKnowledgeGraphManager {
     if (!this.db) throw new Error('Database not initialized');
     if (!this.encoding) throw new Error('Tokenizer not initialized');
     
-    console.error(`🔍 Enhanced hybrid search: "${query}"`);
+    log(`🔍 Enhanced hybrid search: "${query}"`);
     
     // Generate query embedding
     const queryEmbedding = await this.generateEmbedding(query);
@@ -2117,7 +2145,7 @@ class RAGKnowledgeGraphManager {
     }>;
     
     if (vectorResults.length === 0) {
-      console.error(`ℹ️ No vector matches found for "${query}"`);
+      log(`ℹ️ No vector matches found for "${query}"`);
       return [];
     }
     
@@ -2259,7 +2287,7 @@ class RAGKnowledgeGraphManager {
     const entityResults = finalResults.filter(r => r.chunk_type === 'entity').length;
     const relResults = finalResults.filter(r => r.chunk_type === 'relationship').length;
     
-    console.error(`✅ Enhanced hybrid search completed: ${finalResults.length} results (${docResults} docs, ${entityResults} entities, ${relResults} relationships)`);
+    log(`✅ Enhanced hybrid search completed: ${finalResults.length} results (${docResults} docs, ${entityResults} entities, ${relResults} relationships)`);
     
     return finalResults;
   }
@@ -2272,7 +2300,7 @@ class RAGKnowledgeGraphManager {
     
     if (!this.db) throw new Error('Database not initialized');
     
-    console.error(`📖 Getting detailed context for chunk: ${chunkId}`);
+    log(`📖 Getting detailed context for chunk: ${chunkId}`);
     
     // Get the main chunk
     const chunk = this.db.prepare(`
@@ -2344,7 +2372,7 @@ class RAGKnowledgeGraphManager {
     const metadata = JSON.parse(chunk.doc_metadata);
     const documentTitle = metadata.title || metadata.name || chunk.document_id;
     
-    console.error(`✅ Retrieved detailed context with ${surroundingChunks.length} surrounding chunks`);
+    log(`✅ Retrieved detailed context with ${surroundingChunks.length} surrounding chunks`);
     
     return {
       chunk_id: chunk.chunk_id,
@@ -2474,13 +2502,38 @@ const server = new Server({
 }, {
     capabilities: {
       tools: {},
+      resources: {},
     },
+});
+
+// Add resources handler for knowledge graph stats
+server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+  resources: [{
+    uri: "rag://stats",
+    name: "Knowledge Graph Statistics",
+    description: "Current state of the knowledge base (entities, relations, documents, chunks)",
+    mimeType: "application/json"
+  }]
+}));
+
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  if (request.params.uri === "rag://stats") {
+    const stats = await ragKgManager.getKnowledgeGraphStats();
+    return {
+      contents: [{
+        uri: "rag://stats",
+        mimeType: "application/json",
+        text: JSON.stringify(stats, null, 2)
+      }]
+    };
+  }
+  throw new Error("Resource not found");
 });
 
 // Use our new structured tool system for listing tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const tools = getAllMCPTools();
-  console.error(`📋 Serving ${tools.length} tools with comprehensive documentation`);
+  log(`📋 Serving ${tools.length} tools with comprehensive documentation`);
   return { tools };
 });
 
@@ -2558,7 +2611,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   } catch (error) {
     if (error instanceof Error) {
-      console.error(`❌ Tool execution error for ${name}:`, error.message);
+      log(`❌ Tool execution error for ${name}:`, error.message);
       return { content: [{ type: "text", text: `Error: ${error.message}` }] };
     }
     throw error;
@@ -2571,24 +2624,24 @@ async function main() {
     
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("🚀 Enhanced RAG Knowledge Graph MCP Server running on stdio");
+    console.error("RAG Memory MCP Server running on stdio");
     
     // Cleanup on exit
     process.on('SIGINT', () => {
-      console.error('\n🧹 Cleaning up...');
+      log('\n🧹 Cleaning up...');
       ragKgManager.cleanup();
       process.exit(0);
     });
     
   } catch (error) {
-    console.error("Failed to initialize server:", error);
+    log("Failed to initialize server:", error);
     ragKgManager.cleanup();
     process.exit(1);
   }
 }
 
 main().catch((error) => {
-  console.error("Fatal error in main():", error);
+  log("Fatal error in main():", error);
   ragKgManager.cleanup();
   process.exit(1);
 });

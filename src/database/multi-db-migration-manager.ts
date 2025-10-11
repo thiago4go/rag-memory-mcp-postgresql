@@ -391,18 +391,18 @@ export class MultiDbMigrationManager {
   private detectDatabaseType(): string {
     // Detect database type based on the adapter class name
     const adapterName = this.adapter.constructor.name;
-    console.error(`🔍 Detecting database type from adapter: ${adapterName}`);
+    // console.error(`🔍 Detecting database type from adapter: ${adapterName}`);
     
     if (adapterName.includes('SQLite')) {
-      console.error('✅ Detected SQLite database type');
+      // console.error('✅ Detected SQLite database type');
       return 'sqlite';
     }
     if (adapterName.includes('PostgreSQL')) {
-      console.error('✅ Detected PostgreSQL database type');
+      // console.error('✅ Detected PostgreSQL database type');
       return 'postgresql';
     }
     
-    console.error(`⚠️ Unknown database type from adapter: ${adapterName}, defaulting to 'unknown'`);
+    // console.error(`⚠️ Unknown database type from adapter: ${adapterName}, defaulting to 'unknown'`);
     return 'unknown';
   }
 
@@ -423,13 +423,13 @@ export class MultiDbMigrationManager {
   }
 
   private async runSingleMigration(migration: MultiDbMigration): Promise<void> {
-    console.error(`🚀 Running migration ${migration.version} for database type: ${this.databaseType}`);
+    // console.error(`🚀 Running migration ${migration.version} for database type: ${this.databaseType}`);
     
     // Log what migration implementations are available
-    console.error(`📋 Available implementations for migration ${migration.version}:`);
-    console.error(`   - common: ${!!migration.common}`);
-    console.error(`   - sqlite: ${!!migration.sqlite}`);
-    console.error(`   - postgresql: ${!!migration.postgresql}`);
+    // console.error(`📋 Available implementations for migration ${migration.version}:`);
+    // console.error(`   - common: ${!!migration.common}`);
+    // console.error(`   - sqlite: ${!!migration.sqlite}`);
+    // console.error(`   - postgresql: ${!!migration.postgresql}`);
     
     // Convert to the interface expected by the adapter
     const adapterMigration: Migration = {
@@ -437,17 +437,17 @@ export class MultiDbMigrationManager {
       description: migration.description,
       up: async (adapter: DatabaseAdapter) => {
         if (migration.common) {
-          console.error(`✅ Executing common migration for version ${migration.version}`);
+          // console.error(`✅ Executing common migration for version ${migration.version}`);
           await migration.common.up(adapter);
         } else if (this.databaseType === 'sqlite' && migration.sqlite) {
-          console.error(`✅ Executing SQLite-specific migration for version ${migration.version}`);
+          // console.error(`✅ Executing SQLite-specific migration for version ${migration.version}`);
           await migration.sqlite.up(adapter);
         } else if (this.databaseType === 'postgresql' && migration.postgresql) {
-          console.error(`✅ Executing PostgreSQL-specific migration for version ${migration.version}`);
+          // console.error(`✅ Executing PostgreSQL-specific migration for version ${migration.version}`);
           await migration.postgresql.up(adapter);
         } else {
           const errorMsg = `No migration implementation found for ${this.databaseType} in migration ${migration.version}`;
-          console.error(`❌ ${errorMsg}`);
+          // console.error(`❌ ${errorMsg}`);
           throw new Error(errorMsg);
         }
       },

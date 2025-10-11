@@ -652,15 +652,30 @@ export class PostgreSQLAdapter implements DatabaseAdapter {
   }
 
   private async initializeEmbeddingModel(): Promise<void> {
+    const originalStderrWrite = process.env.MCP_SILENT === 'true' ? process.stderr.write : null;
+    
     try {
       this.logger.info('Initializing embedding model...');
+      
+      if (process.env.MCP_SILENT === 'true') {
+        process.stderr.write = () => true;
+      }
+      
       this.embeddingModel = await pipeline(
         'feature-extraction',
         'sentence-transformers/all-MiniLM-L12-v2',
         { revision: 'main' }
       );
+      
+      if (process.env.MCP_SILENT === 'true' && originalStderrWrite) {
+        process.stderr.write = originalStderrWrite;
+      }
+      
       this.logger.info('Embedding model initialized successfully');
     } catch (error) {
+      if (process.env.MCP_SILENT === 'true' && originalStderrWrite) {
+        process.stderr.write = originalStderrWrite;
+      }
       this.logger.warn('Failed to initialize embedding model, using fallback', error as Error);
       this.embeddingModel = null;
     }
