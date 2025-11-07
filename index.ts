@@ -355,12 +355,11 @@ class RAGKnowledgeGraphManager {
       this.encoding = null;
     }
     if (this.embeddingModel) {
-      // Clean up the embedding model if it has cleanup methods
       this.embeddingModel = null;
       this.modelInitialized = false;
     }
     if (this.dbAdapter) {
-      this.dbAdapter.close();
+      this.dbAdapter.close().catch(err => log('Error closing adapter:', err));
       this.dbAdapter = null;
     }
     if (this.db) {
@@ -2490,6 +2489,28 @@ class RAGKnowledgeGraphManager {
       }))
     };
   }
+
+  // Public methods for database switching
+  async switchDatabase(databaseName: string): Promise<void> {
+    if (!this.dbAdapter || !this.dbAdapter.switchDatabase) {
+      throw new Error('Database switching not supported');
+    }
+    await this.dbAdapter.switchDatabase(databaseName);
+  }
+
+  getCurrentDatabase(): string {
+    if (!this.dbAdapter || !this.dbAdapter.getCurrentDatabase) {
+      throw new Error('getCurrentDatabase not supported');
+    }
+    return this.dbAdapter.getCurrentDatabase();
+  }
+
+  async listAvailableDatabases(): Promise<string[]> {
+    if (!this.dbAdapter || !this.dbAdapter.listAvailableDatabases) {
+      throw new Error('listAvailableDatabases not supported');
+    }
+    return this.dbAdapter.listAvailableDatabases();
+  }
 }
 
 // Initialize the manager
@@ -2605,6 +2626,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: JSON.stringify(await ragKgManager.runMigrations(), null, 2) }] };
       case "rollbackMigration":
         return { content: [{ type: "text", text: JSON.stringify(await ragKgManager.rollbackMigration((validatedArgs as any).targetVersion as number), null, 2) }] };
+      
+      // NEW: Database switching tools
+      case "switchDatabase":
+        await ragKgManager.switchDatabase((validatedArgs as any).databaseName as string);
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, database: ragKgManager.getCurrentDatabase() }, null, 2) }] };
+      
+      case "getCurrentDatabase":
+        return { content: [{ type: "text", text: JSON.stringify({ database: ragKgManager.getCurrentDatabase() }, null, 2) }] };
+      
+      case "listDatabases":
+        const databases = await ragKgManager.listAvailableDatabases();
+        return { content: [{ type: "text", text: JSON.stringify({ databases }, null, 2) }] };
       
       default:
         throw new Error(`Unknown tool: ${name}`);

@@ -3,14 +3,14 @@ import { ToolDefinition, MCPTool } from './types.js';
 import { knowledgeGraphTools } from './knowledge-graph-tools.js';
 import { ragTools } from './rag-tools.js';
 import { graphQueryTools } from './graph-query-tools.js';
-// Note: migrationTools are kept internal and not exposed to users
+import { databaseTools } from './database-tools.js';
 
 // Central registry of all tools
 export const allTools = {
   ...knowledgeGraphTools,
   ...ragTools,
   ...graphQueryTools,
-  // Migration tools are handled internally and not exposed
+  ...databaseTools,
 };
 
 // Global settings for tool descriptions
@@ -178,7 +178,7 @@ export function getToolsByCategory() {
     knowledgeGraph: Object.keys(knowledgeGraphTools),
     rag: Object.keys(ragTools),
     graphQuery: Object.keys(graphQueryTools),
-    // migration tools are internal only
+    database: Object.keys(databaseTools),
     all: Object.keys(allTools),
   };
 }
