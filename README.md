@@ -4,13 +4,17 @@
 [![npm downloads](https://img.shields.io/npm/dm/rag-memory-mcp)](https://www.npmjs.com/package/rag-memory-mcp)
 [![GitHub license](https://img.shields.io/github/license/ttommyth/rag-memory-mcp)](https://github.com/ttommyth/rag-memory-mcp/blob/main/LICENSE)
 [![Platforms](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/ttommyth/rag-memory-mcp)
-[![GitHub last commit](https://img.shields.io/github/last-commit/ttommyth/rag-memory-mcp)](https://github.com/ttommyth/rag-memory-mcp/commits/main)
+[![GitHub last commit](https://img.shields.io/github/last-commit/thiago4go/rag-memory-mcp-postgresql)](https://github.com/thiago4go/rag-memory-mcp-postgresql/commits/main)
 
 An advanced MCP server for **RAG-enabled memory** through a knowledge graph with **vector search** capabilities. This server extends the basic memory concepts with semantic search, document processing, and hybrid retrieval for more intelligent memory management.
 
-**🆕 NEW: Full PostgreSQL Support** - Now supports both SQLite (default) and PostgreSQL databases with automatic adapter switching, production-ready performance optimizations, and pgvector integration for enterprise deployments.
+**🆕 NEW: Runtime Database Switching** - Switch between isolated RAG memory contexts on the same PostgreSQL server without restarting. Perfect for multi-project, multi-tenant, or multi-environment setups.
 
-**Inspired by:** [Knowledge Graph Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) from the Model Context Protocol project.
+**🆕 NEW: Full PostgreSQL Support** - Production-ready PostgreSQL adapter with pgvector integration, connection pooling, health monitoring, and automatic migrations.
+
+**Maintained by:** [@thiago4go](https://github.com/thiago4go) - Active development and maintenance  
+**Originally created by:** [@ttommyth](https://github.com/ttommyth) - Original implementation  
+**Inspired by:** [Knowledge Graph Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) from the Model Context Protocol project
 
 **Note:** This server is designed to run locally alongside MCP clients (e.g., Claude Desktop, VS Code) and requires local file system access for database storage.
 
@@ -20,6 +24,7 @@ An advanced MCP server for **RAG-enabled memory** through a knowledge graph with
 - **🔍 Vector Search**: Semantic similarity search using sentence transformers
 - **📄 Document Processing**: RAG-enabled document chunking and embedding
 - **🔗 Hybrid Search**: Combines vector similarity with graph traversal
+- **🔄 Database Context Switching**: Switch between databases at runtime for isolated memory contexts
 - **🗄️ Dual Database Support**: 
   - **SQLite**: Fast local storage with sqlite-vec for vector operations (default)
   - **PostgreSQL**: Production-ready with pgvector, JSONB, and advanced indexing
@@ -27,9 +32,25 @@ An advanced MCP server for **RAG-enabled memory** through a knowledge graph with
 - **🔄 Automated Database Migrations**: Multi-database migration system with schema versioning
 - **⚡ Production Ready**: Connection pooling, transaction management, and performance optimizations
 
+## 🚀 What's New
+
+### Database Context Switching (v1.0.2)
+Switch between isolated RAG memory contexts without server restart:
+- **Multi-Project**: Separate knowledge graphs per project
+- **Multi-Tenant**: Isolated data per client
+- **Multi-Environment**: Dev/staging/prod separation
+- **~500ms switch latency** with automatic migrations
+
+See [DATABASE_SWITCHING.md](DATABASE_SWITCHING.md) for details.
+
 ## Tools
 
 This server provides comprehensive memory management through the Model Context Protocol (MCP):
+
+### 🔄 Database Management (NEW)
+- `switchDatabase`: Switch to a different database on the same PostgreSQL server
+- `getCurrentDatabase`: Get the currently active database name
+- `listDatabases`: List all available databases on the server
 
 ### 📚 Document Management
 - `storeDocument`: Store documents with automatic chunking and embedding generation
