@@ -3097,4 +3097,95 @@ export class PostgreSQLAdapter implements DatabaseAdapter {
       throw error;
     }
   }
+
+  // ============================================================================
+  // Database Context Switching
+  // ============================================================================
+
+  /**
+   * Switch to a different database on the same PostgreSQL server.
+   * Closes current connection pool and reconnects to the specified database.
+   */
+  async switchDatabase(databaseName: string): Promise<void> {
+    if (!this.config) {
+      throw new Error('Adapter not initialized');
+    }
+
+    if (!isPostgreSQLConfig(this.config)) {
+      throw new Error('Database switching only supported for PostgreSQL');
+    }
+
+    const currentDatabase = this.config.postgresql.database;
+    
+    if (currentDatabase === databaseName) {
+      this.logger.info(`Already connected to database: ${databaseName}`);
+      return;
+    }
+
+    this.logger.info(`Switching database from ${currentDatabase} to ${databaseName}`);
+
+    try {
+      // Close current connection pool
+      await this.close();
+
+      // Update config with new database name
+      const newConfig: DatabaseConfig = {
+        ...this.config,
+        postgresql: {
+          ...this.config.postgresql,
+          database: databaseName
+        }
+      };
+
+      // Reinitialize with new database
+      await this.initialize(newConfig);
+
+      this.logger.info(`Successfully switched to database: ${databaseName}`);
+    } catch (error) {
+      this.logger.error(`Failed to switch database to ${databaseName}`, error as Error);
+      
+      // Attempt to reconnect to original database
+      try {
+        await this.initialize(this.config);
+        this.logger.info(`Rolled back to original database: ${currentDatabase}`);
+      } catch (rollbackError) {
+        this.logger.error(`Failed to rollback to original database`, rollbackError as Error);
+      }
+      
+      throw error;
+    }
+  }
+
+  /**
+   * Get the name of the currently active database.
+   */
+  getCurrentDatabase(): string {
+    if (!this.config || !isPostgreSQLConfig(this.config)) {
+      throw new Error('Adapter not initialized or not PostgreSQL');
+    }
+    return this.config.postgresql.database;
+  }
+
+  /**
+   * List all available databases on the PostgreSQL server.
+   */
+  async listAvailableDatabases(): Promise<string[]> {
+    if (!this.pool) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      const result = await this.pool.query(`
+        SELECT datname 
+        FROM pg_database 
+        WHERE datistemplate = false 
+        ORDER BY datname
+      `);
+      
+      return result.rows.map(row => row.datname);
+    } catch (error) {
+      this.logger.error('Failed to list databases', error as Error);
+      throw error;
+    }
+  }
 }
