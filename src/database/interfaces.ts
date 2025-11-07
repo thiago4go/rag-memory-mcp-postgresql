@@ -64,6 +64,37 @@ export interface DatabaseAdapter {
   reEmbedEverything?(): Promise<ReEmbedResult>;
   generateKnowledgeGraphChunks?(): Promise<KnowledgeGraphChunkResult>;
   embedKnowledgeGraphChunks?(): Promise<EmbeddingResult>;
+
+  // Database Context Switching (PostgreSQL only)
+  /**
+   * Switch to a different database on the same server.
+   * Closes current connection and reconnects to the specified database.
+   * 
+   * @param databaseName - Name of the database to switch to
+   * @throws Error if database doesn't exist or connection fails
+   * @example
+   * await adapter.switchDatabase('project_a_memory');
+   */
+  switchDatabase?(databaseName: string): Promise<void>;
+
+  /**
+   * Get the name of the currently active database.
+   * 
+   * @returns Current database name
+   * @example
+   * const dbName = adapter.getCurrentDatabase(); // 'rag_memory'
+   */
+  getCurrentDatabase?(): string;
+
+  /**
+   * List all available databases on the server (PostgreSQL only).
+   * 
+   * @returns Array of database names
+   * @example
+   * const databases = await adapter.listAvailableDatabases();
+   * // ['postgres', 'rag_memory', 'project_a_memory']
+   */
+  listAvailableDatabases?(): Promise<string[]>;
 }
 
 /**
